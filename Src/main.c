@@ -156,6 +156,17 @@ uint32_t get_psp_value(void)
 	return psp_of_tasks[current_task];
 }
 
+void save_psp_value(uint32_t current_psp_value)
+{
+	psp_of_tasks[current_task] = current_psp_value;
+}
+
+void update_next_task(void)
+{
+	current_task++;
+	current_task = current_task % MAX_TASKS;
+}
+
 __attribute__((naked)) switch_sp_to_psp(void)
 {
 	__asm volatile ("PUSH {LR}");
@@ -169,9 +180,19 @@ __attribute__((naked)) switch_sp_to_psp(void)
 }
 
 // scheduler
-void SysTick_Handler(void)
+__attribute__((naked)) void SysTick_Handler(void)
 {
+	__asm volatile("MRS R0,PSP"); // current running task
+	__asm volatile("STMDB R0!,{R4-R11}"); // using psp value to store SF2 (R4-R11)
+	__asm volatile("PUSH {LR}");
+	__asm volatile("BL save_psp_value"); // save curr val of psp
 
+	__asm volatile("BL update_next_task"); // next task
+	__asm volatile("BL get_psp_value"); // past psp val
+	__asm volatile("LDMIA R0!,{R4-R11}"); // using that psp val retrive SF2(R4-R11)
+	__asm volatile("MSR PSP,R0"); // update psp and exit
+	__asm volatile("POP {LR}");
+	__asm volatile("BX LR");
 }
 
 void HardFault_Handler(void)
