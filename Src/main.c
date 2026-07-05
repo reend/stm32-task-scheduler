@@ -23,6 +23,7 @@
 #endif
 
 #include <stdio.h>
+#include "main.h"
 
 void task1_handler(void);
 void task2_handler(void);
@@ -30,27 +31,24 @@ void task3_handler(void);
 void task4_handler(void);
 
 void init_systick_timer(uint32_t tick_hz);
+__attribute__((naked)) void init_scheduler_stack(uint32_t sched_top_of_stack);
+void init_tasks_stack(void)
 
-#define SIZE_TASK_STACK		1024U
-#define SIZE_SCHED_STACK 	1024U
-
-#define SRAM_START			0x20000000U
-#define SIZE_SRAM			((128) * (1024))
-#define SRAM_END			((SRAM_START) + (SIZE_SRAM))
-
-#define T1_STACK_START		SRAM_END
-#define T2_STACK_START		((SRAM_END) - (1 * SIZE_TASK_STACK))
-#define T3_STACK_START		((SRAM_END) - (2 * SIZE_TASK_STACK))
-#define T4_STACK_START		((SRAM_END) - (3 * SIZE_TASK_STACK))
-#define SCHED_STACK_START	((SRAM_END) - (4 * SIZE_TASK_STACK))
-
-#define TICK_HZ 			1000U
-#define HSI_CLOCK			16000000U
-#define SYSTICK_TIM_CLK 	HSI_CLOCK
+uint32_t psp_of_tasks[MAX_TASKS] = {T1_STACK_START, T2_STACK_START, T3_STACK_START, T4_STACK_START};
+uint32_t tasks_handlers[MAX_TASKS];
 
 int main(void)
 {
+	init_scheduler_stack(SCHED_STACK_START);
+
+	tasks_handlers[0] = (uint32_t)task1_handler();
+	tasks_handlers[1] = (uint32_t)task2_handler();
+	tasks_handlers[2] = (uint32_t)task3_handler();
+	tasks_handlers[3] = (uint32_t)task4_handler();
+	init_tasks_stack();
+
     init_systick_timer(TICK_HZ);
+
 	for(;;);
 }
 
@@ -100,6 +98,38 @@ void init_systick_timer(uint32_t tick_hz)
 	*pSCSR |= (1 << 0); // enable SysTick counter, goes to SysTick_Handler
 }
 
+__attribute__((naked)) void init_scheduler_stack(uint32_t sched_top_of_stack)
+{
+	__asm volatile("MSR MSP,%0": : "r" (sched_top_of_stack) :);
+	__asm volatile("BX LR");
+}
+
+void init_tasks_stack(void)
+{
+	uint32_t *pPSP;
+
+	for (int i = 0; i < MAX_TASKS; i++)
+	{
+		pPSP = (uint32_t*)psp_of_tasks[i];
+
+		pPSP--;
+		*pPSP = DUMMY_XPSR;
+
+		pPSP--; // PC
+		*pPSP = task_handler[i];
+
+		pPSP--; // LR
+		*pPSP = 0xFFFFFFFD;
+
+		for (int j = 0; j < 13; j++)
+		{
+			pPSP--; // R-registers
+			*pPSP = 0;
+		}
+
+		psp_of_tasks[i] = (uint32_t)pPSP;
+	}
+}
 
 // scheduler
 void SysTick_Handler(void)
